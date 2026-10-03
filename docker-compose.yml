@@ -1,0 +1,82 @@
+services:
+  grafana:
+    image: grafana/grafana:13.2.3
+    restart: unless-stopped
+    container_name: grafana
+
+    environment:
+      # Endereço público; HTTPS é terminado no Traefik
+      GF_SERVER_DOMAIN: ${GRAFANA_DOMAIN:?Defina GRAFANA_DOMAIN}
+      GF_SERVER_ROOT_URL: https://${GRAFANA_DOMAIN:?Defina GRAFANA_DOMAIN}/
+      GF_SERVER_PROTOCOL: http
+      GF_SERVER_HTTP_PORT: "3000"
+
+      # SQLite no volume persistente
+      GF_DATABASE_TYPE: sqlite3
+      GF_DATABASE_PATH: /var/lib/grafana/grafana.db
+
+      # Plugin Zabbix com versão fixada
+      GF_PLUGINS_PREINSTALL: "alexanderzobnin-zabbix-app@6.8.0"
+
+      # Administrador inicial
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Defina GRAFANA_ADMIN_PASSWORD}
+
+      # Chave de criptografia: preserve junto ao backup
+      GF_SECURITY_SECRET_KEY: ${GRAFANA_SECRET_KEY:?Defina GRAFANA_SECRET_KEY}
+
+      # Segurança e permissões
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_COOKIE_SAMESITE: lax
+      GF_SECURITY_ALLOW_EMBEDDING: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_ALLOW_ORG_CREATE: "false"
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Viewer
+
+      # Logs
+      GF_LOG_MODE: console
+      GF_LOG_LEVEL: info
+      GF_LOG_CONSOLE_FORMAT: json
+
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+    networks:
+      - proxy
+
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: ${TRAEFIK_NET:?Defina TRAEFIK_NET}
+      traefik.http.routers.grafana.rule: Host(`${GRAFANA_DOMAIN:?Defina GRAFANA_DOMAIN}`)
+      traefik.http.routers.grafana.entrypoints: websecure
+      traefik.http.routers.grafana.tls: "true"
+      traefik.http.routers.grafana.tls.certresolver: cloudflare
+      traefik.http.routers.grafana.service: grafana
+      traefik.http.services.grafana.loadbalancer.server.port: "3000"
+
+    security_opt:
+      - no-new-privileges:true
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -q -O /dev/null http://127.0.0.1:3000/api/health || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  grafana_data:
+
+networks:
+  proxy:
+    external: true
+    name: ${TRAEFIK_NET:?Defina TRAEFIK_NET}
